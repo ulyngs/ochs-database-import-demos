@@ -1,0 +1,37 @@
+---
+title: "Demo: generating images in the right formats"
+format: html
+---
+
+```{r, include=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+You can find the full code and data for what I did in "importing_data/2024-sankhu".
+
+# What we want
+For the website, we want JPG images in three sizes: large (~4MB), medium (~600kb), and thumbnail (~25kb).
+'JPG' is probably the most common image format used on the web. 
+JPG is a way to compress images, so that you still retain most of the information, but the filesize is much smaller.
+
+## What we have available
+In the case of the Sankhu collection, we have images in RAW format.
+You can find two examples in the `data/sankhu/` folder.
+They've got the file extension .CR2.
+
+What is this format? 'RAW' is a very-high resolution format that comes straight from a digital camera.
+You'll see the images are ~35MB large.
+For people who aren't professional photographers, it's impractical to work with directly. 
+If we were to use files of this size on our website, it would take *forever* to load...
+
+## What we do
+In the case of the Sankhu collection, I originally converted the RAW images directly to the smaller JPG formats we want for the website.
+However, then I noticed that there was a bunch of mistakes that needed to be edited.
+
+So we do it as a two-step process in this case:
+- **Step 1: convert RAW images to a very large (10MB) JPG that we edit.** That we can keep the original RAW images unchanged
+- **Step 2: convert edited large JPG images to the formats we use on the website** That we can keep the original RAW images unchanged
+
+# Step 1: Convert RAW images to very large JPGs
+
+# Step 2: Store edited large JPG images in the smaller formats used on the website

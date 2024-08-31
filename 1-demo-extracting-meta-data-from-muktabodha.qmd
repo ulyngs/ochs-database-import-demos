@@ -1,0 +1,380 @@
+---
+title: "Demo: exporting meta data from muktabodha texts"
+format: html
+---
+
+```{r, include=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+You can find the full code and data for what I did in "importing_data/muktabodha".
+
+## Meta data
+For the purposes of this example, I will ignore the extra meta data that was contained in some XML files that Muktabodha had online. 
+I consider only the meta data contained in the front matter of the plain text muktabodha files.
+
+You will see two examples in the `data` folder: *AcArasAratantra-M00501-IAST* and *acintyavizvasAdAkhyam-M00272-IAST*.
+
+If you open the first one, you will see something like this:
+
+```
+####################################################
+MUKTABODHA INDOLOGICAL RESEARCH INSTITUTE
+Use of this material (e-texts) is covered by Creative Commons license BY-NC 4.0
+Catalog number: M00501
+Uniform title: ācārasāratantra
+Main title: ācārasāratantram
+Secondary title: haṭhapradīpakā
+Secondary title: samayācāra
+Author : svātmārāma
+Manuscript : NGMCP 3-325 Reel B 116/8
+
+Description: 
+The manuscript contains 4 chapters of the haṭhapradīpakā   followed by the acārasāratantra which teachs a form of extreme Kaulism called cīnācāra.   This is followed by a tract of 300 verses called samayācāra .    Followed by a hymn to a goblet of wine used in this Kaula ritual attributed to the rudrayāmala . Then the ulūkalpa
+
+
+Notes: 
+Data entered by the staff of Muktabodha under the supervision of Mark S. G. Dyczkowski.
+
+Revision 0:     August 14 2021.
+
+Internet publisher : Muktabodha Indological Research Institute
+Publication year : 
+Publication city : 
+Publication country : India
+####################################################
+
+
+
+32)
+
+* * * * ścalaulyaṃ ca ṣaḍbhiryogo vinaśyati || 15 || 
+
+utsāhāt sāhasādhairyāt tatvajñānāśca niścayāt |
+janasaṃgaparityāgāt ṣaḍbhiryogaḥ prasidhyati || 16 ||
+```
+ 
+So each of these files have their meta data in the beginning, enclosed by strings of "####...". Let's try to extract it!
+
+
+## Filter to just meta data part
+Let's read this in to R, line by line, and put it in a data frame, using the `tibble` (a type of data frame) and `read_lines` functions:
+
+```{r}
+# read in text line-by-line
+text_lines <- read_lines("data/muktabodha/AcArasAratantra-M00501-IAST.txt")
+
+# put in data frame
+text_in_data_frame <- tibble(
+  text = text_lines
+)
+
+# display it
+text_in_data_frame
+```
+
+There's 5,837 lines --- let's only include the ones in between the hashes.
+We'll first count the cumulative number of lines with a string of hashes:
+
+```{r}
+text_w_hash_count <- text_in_data_frame |> 
+  # add column to keep track of hash count
+  mutate(hash_count = cumsum(str_detect(text, "####################"))) |> 
+   # move the column to the front
+  relocate(hash_count)
+
+text_w_hash_count |> 
+  DT::datatable()
+```
+
+If you move down the rows you'll see the count changes to '2' when we get to the second string of hashes.
+
+So we can just get the meta data part by filtering to where the count is 1 (and let's drop the hash count afterwards, as it's now no longer needed)
+
+```{r}
+muktabodha_meta <- text_w_hash_count |> 
+  filter(hash_count == 1) |> 
+  select(-hash_count)
+
+muktabodha_meta |> 
+  DT::datatable()
+```
+
+## Mark which type we're looking at
+So the rows have a bunch of different type of meta data. Most of the time it's on one line, with the type first, then the value. E.g. "Uniform title: ācārasāratantra".
+But other times the type is on its own line, then the value follows on the next lines.
+
+Let's try to enumerate the types they have and extract it into its own column:
+
+```{r}
+type_marked <- muktabodha_meta |> 
+    mutate(type = case_when(
+      str_detect(text, "Use of this material") ~ "License",
+      str_detect(text, "Catalog number") ~ "Catalog number",
+      str_detect(text, "Uniform title") ~ "Uniform title",
+      str_detect(text, "Main title") ~ "Main title",
+      str_detect(text, "Secondary title") ~ "Secondary title",
+      str_detect(text, "Author") ~ "Author",
+      str_detect(text, "Manuscript") ~ "Manuscript",
+      str_detect(text, "Description") ~ "Description",
+      str_detect(text, "Notes") ~ "Notes",
+      str_detect(text, "Revision") ~ "Revision",
+      str_detect(text, "Internet publisher") ~ "Publisher",  
+      str_detect(text, "Publication year") ~ "Publication year",
+      str_detect(text, "Publication city") ~ "Publication city",
+      str_detect(text, "Publication country") ~ "Publication country"
+    )) |> 
+    relocate(type)
+
+type_marked |> 
+  DT::datatable()
+```
+
+So far, so good!
+
+We need to handle the fact that some of the categories stretch over multiple lines. Let's just fill in the blanks, so that e.g. "Description" just continues down until there's another category.
+
+```{r}
+type_filled_in <- type_marked |> 
+  fill(type)
+
+type_filled_in |> 
+  DT::datatable()
+```
+
+
+Great! Now we just want to do such that we only have one row per type again. We do that by grouping by the type, and then using `summarise` to collapse each type into a single row, where we enter the text on new lines if there's more than one entry (`\n` is the way to tell a computer to make a line break in plain text).
+
+```{r}
+meta_one_row_per_type <- type_filled_in |> 
+  group_by(type) |> 
+  summarise(text = str_c(text, collapse = "\n"))
+
+meta_one_row_per_type |> 
+  DT::datatable()
+```
+
+## Map to OCHS meta data categories
+Great! Now we can map the types of meta data to our [OCHS categories](https://docs.google.com/spreadsheets/d/13gQ7PZ0qLmK26qFI_uR2QfSgeXD8yDifWiy81BYh6R8/edit?gid=1121317864#gid=1121317864).
+
+We'll add a new column with the mapping:
+
+```{r}
+mapped_to_ochs <- meta_one_row_per_type |> 
+  mutate(ochs_type = case_when(
+    type == "Main title" ~ "Title (transliteration)",
+    type == "Catalog number" ~ "External catalogue ids",
+    type %in% c("Manuscript", "Description") ~ "External meta data",
+    type == "Notes" ~ "Remarks",
+    str_detect(type, "Publication") ~ "Publisher",
+    # etc.
+    # set to the existing name unless we explicitly map it
+    TRUE ~ type
+  )) |> 
+  relocate(ochs_type)
+
+mapped_to_ochs |> 
+  DT::datatable()
+```
+## Clean up the entries
+You'll notice now that we've gota lot of redundant information, e.g., "Main title: ācārasāratantram", where the 'Main title:' bit should be removed.
+
+There's also empty entries like "Publication city :" that we want to remove altogether.
+Let's clean this up a bit!
+
+For our Author, and Title (transliteration), let's remove the 'type' from the original meta data.
+
+```{r}
+clean_type_inclusion <- mapped_to_ochs |> 
+  # deal with Author and Title
+  mutate(text = if_else(
+    ochs_type %in% c("Author", "Title (transliteration)"),
+    str_remove(text, type),
+    text
+  ))
+
+clean_type_inclusion |> 
+  DT::datatable()
+```
+
+Whoops, notice that some values that now begin with a colon. Let's remove this colon.
+
+And let's also make sure that when something has a colon, there's not a blank space before (i.e., "Publication city :" should be "Publication city:").
+
+Let's use 'str_squish' first to remove any leading or trailing or duplicated whitespace (i.e., " : svātmārāma" becomes ": svātmārāma").
+
+```{r}
+clean_colons <- clean_type_inclusion |> 
+  # remove leading (" something" -> "something"), trailing ("something " -> "something"), and duplicated ("  " -> " ") whitespace
+  mutate(text = str_squish(text)) |> 
+  # remove leading colons -- "^" in regular expressions means 'starts with'
+  mutate(text = str_remove(text, "^:")) |> 
+  # remove space before colons
+  mutate(text = str_replace_all(text, " :", ":"))
+
+clean_colons |> 
+  DT::datatable()
+```
+
+Great!
+
+Finally, let's deal with empty case: let's drop a row if it only has the type name followed by a colon:
+
+```{r}
+drop_empty <- clean_colons |> 
+  # str_c just combines things
+  filter(text != str_c(type, ":"))
+
+drop_empty |> 
+  DT::datatable()
+```
+
+Now it looks good!
+
+## Put in one-row-per-OCHS-type format
+So you might've noticed that we mapped two categories to 'External meta data': Description and Manuscript.
+
+Let's get a format where we've just got one row per OCHS meta data type.
+
+```{r}
+one_row_per_ochs_type <- drop_empty |> 
+  group_by(ochs_type) |> 
+  mutate(text = str_c(text, collapse = "\n")) |> # 
+  distinct(ochs_type, text) #drop duplicated rows
+
+one_row_per_ochs_type |> 
+  DT::datatable()
+```
+
+
+## If you're adding lots of entries
+If we're adding lots of entries, you'll want to write a function that'll automatically get this meta data if you give it a file.
+Let's put all the code in a function that works for a muktabodha file:
+
+```{r}
+get_clean_meta_data <- 
+```
+
+
+
+# Consider how to import
+## If you're adding for a single manuscript manually
+If you're just adding a single entry, you could just do it manually using our web app for meta data editing: https://ulriklyngs.shinyapps.io/metadata-editor/
+
+When you add a new manuscripts via the form, data will automatically be input in the google sheet in a fool-proof way where you can't make mistakes in the formatting of the data.
+
+And the new manuscript will automatically be assigned a new manuscript ID.
+
+## If you're adding lots of manuscripts
+If you're adding lots of manuscripts you won't want to do them one-by-one.
+In this case you'll just want to save our the new meta data in an Excel in a format that you can copy-paste directly into the meta data google sheet.
+
+There's a few steps you'll need to do:
+
+## Make it wide format
+Let's change it to a format where the types are column names, using `pivot_wider`:
+
+```{r}
+wide_meta <- mapped_to_ochs |> 
+  select(-type) |> # drop the original 'type' column
+  pivot_wider(names_from = ochs_type, 
+              values_from = text)
+
+wide_meta
+```
+
+
+## Add OCHS id
+Now let's add an OCHS id. We create IDs based on a transliterated title and a number (this number should be the highest we've currently used in the database + 1)
+
+Here's a function that does that:
+
+```{r}
+create_ochs_id <- function(name_in_transliteration, number){
+  # take max 30 characters of name; replace special chars
+  # e.g. Śrīnetratantram Śrīmāheśvarācāryaśrīkṣemarājakr̥toddyotākhyavivaraṇopeta -> srinetratantram_srimahesv
+  name_no_special_chars <- name_in_transliteration |> 
+    str_sub(1,30) |> 
+    janitor::make_clean_names()
+  
+  # e.g. 12 -> 000_000_012_
+  our_numbering_format <- str_pad(number, width = 9, pad = "0") |> 
+    str_replace_all("(.{3})", "\\1_")
+  
+  final_format <- str_c("ochs_",
+                        our_numbering_format,
+                        name_no_special_chars)
+  
+  return(final_format)
+}
+
+# test_name <- "Śrīnetratantram Śrīmāheśvarācāryaśrīkṣemarājakr̥toddyotākhyavivaraṇopetam"
+# create_ochs_id(test_name, 19)  # returns "ochs_000_000_019_srinetratantram_srimahesv"
+```
+
+
+Let's use that to create a manuscript ID. Let's say our highest used number is 520.
+
+
+```{r}
+meta_w_id <- wide_meta |>
+  mutate(manuscript_number = 521,  # if you have lots of manuscripts, you'll want set their number with e.g., row_number() + 520
+         "Internal catalogue id" = create_ochs_id(`Title (transliteration)`, manuscript_number)) |> 
+  select(-manuscript_number) |>  #drop this again
+  relocate(`Internal catalogue id`) # Note that for columns with spaces, we need to use backticks (`) to select them
+
+meta_w_id
+```
+
+## Merging with our metadata categories
+The final step is to put this in the same columns as our OCHS meta data.
+
+This example won't quite do it because I skipped mapping some of meta data types, but it should convey the idea!
+
+First, download the latest OCHS metadata using the `googlesheets4` package:
+
+```{r}
+library(googlesheets4)
+gs4_deauth() # we don't need to authenticate, as we have set it to public read-access
+
+# the id for our google sheet
+sheet_id <- "https://docs.google.com/spreadsheets/d/13gQ7PZ0qLmK26qFI_uR2QfSgeXD8yDifWiy81BYh6R8/edit?usp=sharing"
+  
+# read in the meta data
+ochs_meta_data <- read_sheet(sheet_id,
+                        sheet = "manuscript metadata",
+                        col_types = "c")
+
+# just take the five first rows
+ochs_meta_data_head <- ochs_meta_data |> 
+  head()
+
+```
+
+Great, now we'll add a provenance category for our new text, and append it with `bind_rows` (it'll match the columns it can):
+
+```{r}
+meta_w_id_and_additional_info <- meta_w_id |> 
+  mutate("Add to website" = "No",
+         "Provenance category" = "Muktabodha")
+
+
+# append
+joined_meta_data <- ochs_meta_data_head |> 
+  bind_rows(meta_w_id_and_additional_info)
+
+joined_meta_data
+```
+
+## Save out
+Let's save out the result as an excel file using the `writexl` package:
+
+```{r}
+joined_meta_data |> 
+  writexl::write_xlsx("muktabodha-demo-meta.xlsx")
+```
+
+
+
+Hopefully this will get you started with understand my actual, less pedagogical (sorry!), code! :)
+

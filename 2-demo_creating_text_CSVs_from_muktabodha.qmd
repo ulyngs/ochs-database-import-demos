@@ -1,0 +1,136 @@
+---
+title: "Demo: creating CSVs with one-row-per-paragraph"
+format: html
+---
+
+```{r, include=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+You can find the full code and data for what I did in "importing_data/muktabodha".
+
+# What we want
+The muktabodha texts look a bit like this:
+
+```
+Internet publisher : Muktabodha Indological Research Institute
+Publication year : 
+Publication city : 
+Publication country : India
+####################################################
+
+
+
+32)
+
+* * * * ścalaulyaṃ ca ṣaḍbhiryogo vinaśyati || 15 || 
+
+utsāhāt sāhasādhairyāt tatvajñānāśca niścayāt |
+janasaṃgaparityāgāt ṣaḍbhiryogaḥ prasidhyati || 16 ||
+
+vasiṣṭhādyaiśca munibhirmatsyendrādyaiśca yogibhiḥ |
+aṃgīkṛtānyāsanāni kathyaṃte kāni cinmayā || 17 ||
+
+haṭhasya prathamāṃ gatvā dāsanaṃ pūrvamucyate |
+tat kuryādāsanasthairyamārogyaṃ cāṃgalāghavaṃ || 18 ||
+
+jānūrdhvoraṃtare samyak kṛtvā pādatale ubhe |
+ṛjukāyaḥ samāsīta svastikaṃ tat pracakṣyate || 19 ||
+```
+
+What we want to do is put this in a spreadsheet format, where each row contains a paragraph of text. 
+
+And then we want to store that as a CSV ('comma-separated values') file. A CSV is a simple, plain text way to store data that's in rows and columns.
+
+How do we do it?
+
+## Filter to just text part
+We'll filter just to the text now.
+
+```{r}
+# read in text line-by-line
+text_lines <- read_lines("data/muktabodha/AcArasAratantra-M00501-IAST.txt")
+
+# put in data frame
+text_in_data_frame <- tibble(
+  text = text_lines
+)
+
+# display it
+text_in_data_frame
+```
+
+There's 5,837 lines --- let's only include the ones after the second line with hashes, as this marks the end:
+We'll first count the cumulative number of lines with a string of hashes:
+
+```{r}
+text_w_hash_count <- text_in_data_frame |> 
+  # add column to keep track of hash count
+  mutate(hash_count = cumsum(str_detect(text, "####################"))) |> 
+   # move the column to the front
+  relocate(hash_count)
+
+text_w_hash_count |> 
+  DT::datatable()
+```
+
+If you move down the rows you'll see the count changes to '2' when we get to the second string of hashes.
+
+So we can get the text part by filtering to where the count is 2 and then drop the row with the string of hashes
+
+```{r}
+muktabodha_text <- text_w_hash_count |> 
+  filter(hash_count == 2) |> 
+  filter(!str_detect(text, "#########")) |> 
+  select(-hash_count)
+
+muktabodha_text |> 
+  DT::datatable()
+```
+
+## Turn into one-row-per-paragraph
+Let's say that a paragraph ends when there's a blank line. How can we get the text as one-row-per-paragraph?
+
+When there's multiple blank lines, let's have only one blank line. Then let's count the number of blank lines
+
+```{r}
+count_paragraphs <- muktabodha_text |> 
+  filter(!(text == "" & lead(text) == "")) |>  #drop multiple blank lines
+  mutate(paragraph = cumsum(text == ""))
+
+count_paragraphs |> 
+  DT::datatable()
+
+```
+
+Now let's put in one row per paragraph --- for the purpose of this demo, we'll separate combined lines with `<br/>` (this inserts new lines in HTML):
+
+```{r}
+one_row_per_paragraph <- count_paragraphs |> 
+  group_by(paragraph) |> 
+  mutate(text = str_c(text, collapse = "<br/>")) |> 
+  distinct()
+
+one_row_per_paragraph
+```
+
+As we can see, this also inserted some break tags at the beginning of lines, let's get rid of them, using a [regular expression](https://r4ds.hadley.nz/regexps). In regular expressions, `^` means "at the beginning of the line": 
+
+```{r}
+cleaned_one_row_per_paragraph <- one_row_per_paragraph |> 
+  mutate(text = str_remove(text, "<br/>"))
+
+cleaned_one_row_per_paragraph |> 
+  DT::datatable(escape = FALSE)
+```
+
+## Save out
+Great, that looks good!
+
+Now let's save it out as a CSV file -- remember that on the AWS server, the filename here should begin with the manuscript_id.
+
+```{r}
+cleaned_one_row_per_paragraph |> 
+  write_csv("data/example-one-row-per-paragraph.csv")
+```
+
