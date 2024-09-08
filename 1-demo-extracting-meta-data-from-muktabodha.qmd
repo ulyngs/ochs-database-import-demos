@@ -251,10 +251,6 @@ one_row_per_ochs_type |>
 If we're adding lots of entries, you'll want to write a function that'll automatically get this meta data if you give it a file.
 Let's put all the code in a function that works for a muktabodha file:
 
-```{r}
-get_clean_meta_data <- 
-```
-
 
 
 # Consider how to import
